@@ -65,7 +65,7 @@ export default function DeveloperModal() {
     const body = encodeURIComponent(
       `### Bug Description\n${bugDesc}\n\n### Steps to Reproduce\n${bugSteps}\n\n---\n*Reported via PDFMaster App*`
     );
-    window.open(`https://github.com/hctsystem/pdfmaster/issues/new?title=${title}&body=${body}`, '_blank');
+    window.open(`https://github.com/haroldprofile/pdfmaster/issues/new?title=${title}&body=${body}`, '_blank');
   };
 
   if (!isOpen) return null;
