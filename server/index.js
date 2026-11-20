@@ -9,7 +9,18 @@ const { promisify } = require('util');
 const libreConvertAsync = promisify(libre.convertWithOptions);
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  allowedHeaders: ['Content-Type', 'x-withoutbg-api-key']
+}));
+
+// Health & capability check
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    hasWithoutBgKey: Boolean(process.env.WITHOUTBG_API_KEY)
+  });
+});
 
 // Configure multer for in-memory storage (up to 50MB file size limit)
 const upload = multer({ 
@@ -129,6 +140,80 @@ app.post('/api/convert/pdf-to-ppt', upload.single('file'), (req, res) => {
 
 app.post('/api/convert/pdf-to-excel', upload.single('file'), (req, res) => {
   handleConversion(req, res, 'xlsx');
+});
+
+// ─── Image Background Removal (withoutBG Cloud API Proxy) ─────────
+// ponytail: uses withoutBG REST API directly from Node 20 fetch (avoids Python + 1.5GB ONNX weights on Render 512MB tier)
+app.post('/api/image/remove-bg', upload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image uploaded.' });
+  }
+
+  const userKey = String(req.headers['x-withoutbg-api-key'] || '').trim();
+  const apiKey = userKey || (process.env.WITHOUTBG_API_KEY || '').trim();
+
+  if (!apiKey) {
+    return res.status(400).json({
+      error: 'No withoutBG API key configured. Enter your API key below or set WITHOUTBG_API_KEY on the server.',
+      code: 'MISSING_API_KEY'
+    });
+  }
+
+  try {
+    const form = new FormData();
+    const mimeType = req.file.mimetype || 'image/png';
+    const fileName = req.file.originalname || 'image.png';
+    form.append('file', new Blob([req.file.buffer], { type: mimeType }), fileName);
+
+    const upstream = await fetch('https://api.withoutbg.com/v1.0/image-without-background', {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey },
+      body: form
+    });
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '');
+      let message = `withoutBG API returned HTTP ${upstream.status}.`;
+      if (upstream.status === 401 || upstream.status === 403) {
+        message = 'Invalid withoutBG API key. Please check your key and try again.';
+      } else if (upstream.status === 402 || upstream.status === 429) {
+        message = 'withoutBG API credits exhausted or rate limit reached. Try entering your own API key or use Offline Magic Wand.';
+      } else if (upstream.status === 413) {
+        message = 'Image exceeds withoutBG 20MB file size limit. Resize it first and retry.';
+      } else if (upstream.status === 415) {
+        message = 'Unsupported image format. Please use PNG, JPG, or WebP.';
+      }
+      return res.status(upstream.status).json({
+        error: message,
+        code: upstream.status === 402 || upstream.status === 429 ? 'CREDITS_EXHAUSTED' : 'UPSTREAM_ERROR',
+        details: errText.slice(0, 300)
+      });
+    }
+
+    const contentType = upstream.headers.get('content-type') || '';
+    let pngBuffer;
+    if (contentType.includes('application/json')) {
+      const payload = await upstream.json();
+      const b64 = payload.img_without_background_base64 || payload.image_base64;
+      if (!b64) {
+        return res.status(502).json({ error: 'Unexpected JSON response from withoutBG API.' });
+      }
+      pngBuffer = Buffer.from(b64, 'base64');
+    } else {
+      const arrayBuf = await upstream.arrayBuffer();
+      pngBuffer = Buffer.from(arrayBuf);
+    }
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', 'inline; filename="removed-bg.png"');
+    return res.send(pngBuffer);
+  } catch (error) {
+    console.error('withoutBG proxy error:', error);
+    return res.status(502).json({
+      error: 'Failed to reach withoutBG API.',
+      details: error.message
+    });
+  }
 });
 
 // Server listener

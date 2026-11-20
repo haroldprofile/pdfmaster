@@ -11,7 +11,7 @@ import {
   Wrench, Archive, Printer, Hash, Droplets, Unlock,
   EyeOff, Search, FileImage, FileX,
   FileOutput, Layers, Columns2, QrCode, Wifi, User, Camera,
-  Sun, Moon
+  Sun, Moon, Wand2
 } from 'lucide-react';
 
 import CompressorTool     from './components/CompressorTool';
@@ -40,6 +40,7 @@ import RedactTool         from './components/RedactTool';
 import CompareTool        from './components/CompareTool';
 import QrToolsPage       from './components/QrToolsPage';
 import CertificateGeneratorTool from './components/CertificateGeneratorTool';
+import ImageEditorTool   from './components/ImageEditorTool';
 import DeveloperModal    from './components/DeveloperModal';
 
 import './App.css';
@@ -252,10 +253,17 @@ const ALL_TOOLS: ToolDef[] = [
     icon: <FileText size={22} />, path: '/certificate',
     color: '#0EA5E9', glow: 'rgba(14,165,233,0.3)', bg: 'rgba(14,165,233,0.12)', category: 'Edit PDF', isNew: true,
   },
+  // Image Tools
+  {
+    id: 'image-editor', title: 'Image Editor',
+    description: 'Crop, scanned copy B&W, remove background (withoutBG AI & Magic Wand), draw, blur & resize.',
+    icon: <Wand2 size={22} />, path: '/image-editor',
+    color: '#EC4899', glow: 'rgba(236,72,153,0.3)', bg: 'rgba(236,72,153,0.12)', category: 'Image Tools', isNew: true,
+  },
 ];
 
 const CATEGORIES = [
-  'All', 'Organize PDF', 'Optimize PDF', 'Convert to PDF',
+  'All', 'Image Tools', 'Organize PDF', 'Optimize PDF', 'Convert to PDF',
   'Convert from PDF', 'Edit PDF', 'PDF Security', 'View & OCR',
 ];
 
@@ -287,6 +295,29 @@ function Navbar() {
           <span><b>PDF</b>Master</span>
         </Link>
         <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Link
+            to="/image-editor"
+            className="navbar-link-shortcut"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              padding: '0.4rem 0.875rem',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
+              textDecoration: 'none',
+              fontSize: '0.8125rem',
+              fontWeight: 700,
+              transition: 'all 150ms'
+            }}
+            aria-label="Open Image Editor"
+          >
+            <Wand2 size={14} color="#EC4899" />
+            <span className="navbar-shortcut-text">Image Editor</span>
+          </Link>
+
           <Link
             to="/certificate"
             className="navbar-link-shortcut"
@@ -766,6 +797,13 @@ function Home() {
             >
               Certificate Generator
             </Link>
+            <span style={{ color: 'var(--border)' }}>•</span>
+            <Link
+              to="/image-editor"
+              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', textDecoration: 'none', fontSize: '0.8125rem' }}
+            >
+              Image Editor
+            </Link>
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
             &copy; {new Date().getFullYear()} PDFMaster. Built with React, pdf-lib, Tesseract.js &amp; pdfjs-dist.
@@ -841,6 +879,8 @@ export default function App() {
         <Route path="/qr"                element={<ToolWrapper title="QR Code Tools"><QrToolsPage /></ToolWrapper>} />
         {/* Certificate Generator */}
         <Route path="/certificate"       element={<ToolWrapper title="Stock Certificate Generator"><CertificateGeneratorTool /></ToolWrapper>} />
+        {/* Image Editor */}
+        <Route path="/image-editor"      element={<ToolWrapper title="Image Editor"><ImageEditorTool /></ToolWrapper>} />
         <Route path="*"                  element={<Home />} />
       </Routes>
       <DeveloperModal />
