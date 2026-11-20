@@ -12,10 +12,15 @@ import {
   applySharpen,
   applyMagicWandErase,
   applyMosaicRegion,
-  type ScanMode
+  detectDocumentCorners,
+  warpRgbaPerspective,
+  DEFAULT_QUAD,
+  type ScanMode,
+  type QuadCorners
 } from '../utils/imageEditorOps';
 
 type EditorTab = 'adjust' | 'scan' | 'crop' | 'bg' | 'draw' | 'resize';
+type CropMode = 'rect' | 'corners';
 type DrawTool = 'pen' | 'mosaic' | 'text' | 'rect' | 'line' | 'arrow';
 type BgMode = 'transparent' | 'solid' | 'image';
 type AspectPreset = 'free' | '1:1' | '4:3' | '16:9' | 'a4' | 'id';
@@ -140,7 +145,8 @@ export default function ImageEditorTool() {
   const [adj, setAdj] = useState<Adjustments>(DEFAULT_ADJ);
   const [scan, setScan] = useState<ScanSettings>(DEFAULT_SCAN);
 
-  // Crop state
+  // Crop state (rectangle + 4-corner perspective flatten)
+  const [cropMode, setCropMode] = useState<CropMode>('rect');
   const [cropRect, setCropRect] = useState<CropRect>({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
   const [aspectPreset, setAspectPreset] = useState<AspectPreset>('free');
   const cropDragRef = useRef<{
@@ -149,6 +155,10 @@ export default function ImageEditorTool() {
     startY: number;
     startRect: CropRect;
   } | null>(null);
+  const [quadCorners, setQuadCorners] = useState<QuadCorners>(
+    () => DEFAULT_QUAD.map(p => ({ ...p })) as QuadCorners
+  );
+  const quadDragIdxRef = useRef<number | null>(null);
 
   // Remove BG & Background replacement state
   const [serverHasKey, setServerHasKey] = useState<boolean | null>(null);
@@ -247,6 +257,7 @@ export default function ImageEditorTool() {
     setBgMode('transparent');
     setBgImage(null);
     setCropRect({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+    setQuadCorners(DEFAULT_QUAD.map(p => ({ ...p })) as QuadCorners);
     setAspectPreset('free');
     setStatusMsg(null);
     setHasImage(true);
@@ -433,6 +444,7 @@ export default function ImageEditorTool() {
     setBgMode('transparent');
     setBgImage(null);
     setCropRect({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+    setQuadCorners(DEFAULT_QUAD.map(p => ({ ...p })) as QuadCorners);
     setStatusMsg({ type: 'info', text: 'Reset to original image.' });
     pushHistory(fresh);
   };
@@ -560,8 +572,83 @@ export default function ImageEditorTool() {
     cropped.getContext('2d')?.drawImage(base, sx, sy, sw, sh, 0, 0, sw, sh);
     baseCanvasRef.current = cropped;
     setCropRect({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+    setQuadCorners(DEFAULT_QUAD.map(p => ({ ...p })) as QuadCorners);
     pushHistory(cropped);
     setStatusMsg({ type: 'success', text: `Cropped to ${sw} × ${sh} px.` });
+  };
+
+  // ── 4-Corner Document Auto-Detect & Perspective Flatten ──
+  const handleAutoDetectCorners = () => {
+    const base = baseCanvasRef.current;
+    if (!base) return;
+    const ctx = base.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    const imgData = ctx.getImageData(0, 0, base.width, base.height);
+    const { corners, detected } = detectDocumentCorners(imgData.data, base.width, base.height);
+    setQuadCorners(corners);
+    setCropMode('corners');
+    setActiveTab('crop');
+    setStatusMsg(
+      detected
+        ? { type: 'success', text: 'Document corners detected! Drag any corner to fine-tune, then click Flatten & Crop.' }
+        : { type: 'info', text: 'Could not lock onto clear page edges — drag the 4 corner handles manually.' }
+    );
+  };
+
+  const startQuadCornerDrag = (e: React.PointerEvent, idx: number) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    quadDragIdxRef.current = idx;
+  };
+
+  const onQuadPointerMove = (e: React.PointerEvent) => {
+    const idx = quadDragIdxRef.current;
+    const canvas = displayCanvasRef.current;
+    if (idx === null || !canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setQuadCorners(prev => {
+      const next = prev.map(p => ({ ...p })) as QuadCorners;
+      next[idx] = { x: nx, y: ny };
+      return next;
+    });
+  };
+
+  const endQuadCornerDrag = () => {
+    quadDragIdxRef.current = null;
+  };
+
+  const applyPerspectiveCrop = () => {
+    bakePendingFilters(false);
+    const base = baseCanvasRef.current;
+    if (!base) return;
+    const ctx = base.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const cornersPx = quadCorners.map(p => ({
+      x: p.x * (base.width - 1),
+      y: p.y * (base.height - 1),
+    })) as QuadCorners;
+
+    const srcData = ctx.getImageData(0, 0, base.width, base.height).data;
+    const warped = warpRgbaPerspective(srcData, base.width, base.height, cornersPx);
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = warped.width;
+    outCanvas.height = warped.height;
+    const outCtx = outCanvas.getContext('2d');
+    if (outCtx) {
+      const outImg = outCtx.createImageData(warped.width, warped.height);
+      outImg.data.set(warped.data);
+      outCtx.putImageData(outImg, 0, 0);
+    }
+
+    baseCanvasRef.current = outCanvas;
+    setQuadCorners(DEFAULT_QUAD.map(p => ({ ...p })) as QuadCorners);
+    pushHistory(outCanvas);
+    setStatusMsg({ type: 'success', text: `Document flattened & cropped to ${warped.width} × ${warped.height} px.` });
   };
 
   // ── Resize ──
@@ -1060,8 +1147,8 @@ export default function ImageEditorTool() {
               onPointerCancel={handleCanvasPointerUp}
             />
 
-            {/* Interactive Crop Overlay */}
-            {activeTab === 'crop' && !comparing && (
+            {/* Interactive Crop Overlay (Rectangle or 4-Corner Document Flatten) */}
+            {activeTab === 'crop' && !comparing && cropMode === 'rect' && (
               <div
                 className="ie-crop-layer"
                 onPointerMove={onCropPointerMove}
@@ -1084,6 +1171,37 @@ export default function ImageEditorTool() {
                   <span className="ie-crop-handle sw" onPointerDown={e => startCropDrag(e, 'sw')} />
                   <span className="ie-crop-handle se" onPointerDown={e => startCropDrag(e, 'se')} />
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'crop' && !comparing && cropMode === 'corners' && (
+              <div
+                className="ie-quad-layer"
+                onPointerMove={onQuadPointerMove}
+                onPointerUp={endQuadCornerDrag}
+                onPointerCancel={endQuadCornerDrag}
+              >
+                <svg className="ie-quad-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  <polygon
+                    points={quadCorners.map(p => `${(p.x * 100).toFixed(2)},${(p.y * 100).toFixed(2)}`).join(' ')}
+                    fill="rgba(59, 130, 246, 0.16)"
+                    stroke="#3B82F6"
+                    strokeWidth="0.7"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+                {quadCorners.map((pt, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="ie-quad-handle"
+                    style={{ left: `${pt.x * 100}%`, top: `${pt.y * 100}%` }}
+                    onPointerDown={e => startQuadCornerDrag(e, idx)}
+                    aria-label={`Drag document corner ${idx + 1}`}
+                  >
+                    <span>{idx + 1}</span>
+                  </button>
+                ))}
               </div>
             )}
 
@@ -1189,6 +1307,20 @@ export default function ImageEditorTool() {
             {/* ── 2. SCANNED COPY B&W ── */}
             {activeTab === 'scan' && (
               <>
+                <div className="ie-card" style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                  <span className="ie-label" style={{ margin: 0 }}>Document Edge Detection</span>
+                  <button
+                    className="ie-chip-btn active"
+                    style={{ width: '100%', padding: '0.6rem' }}
+                    onClick={handleAutoDetectCorners}
+                  >
+                    <ScanLine size={14} /> Auto-Detect Corners & Flatten
+                  </button>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    Finds page corners automatically so you can unwarp tilted photos before applying B&amp;W scan.
+                  </span>
+                </div>
+
                 <div className="ie-section">
                   <label className="ie-label">Scanned Copy Preset</label>
                   <div className="ie-btn-grid-2">
@@ -1284,48 +1416,103 @@ export default function ImageEditorTool() {
             {activeTab === 'crop' && (
               <>
                 <div className="ie-section">
-                  <label className="ie-label">Aspect Ratio</label>
-                  <div className="ie-btn-grid-3">
-                    {(Object.keys(ASPECT_RATIOS) as AspectPreset[]).map(k => (
-                      <button
-                        key={k}
-                        className={`ie-chip-btn ${aspectPreset === k ? 'active' : ''}`}
-                        onClick={() => selectAspectPreset(k)}
-                      >
-                        {ASPECT_RATIOS[k].label}
-                      </button>
-                    ))}
+                  <label className="ie-label">Crop Mode</label>
+                  <div className="ie-btn-grid-2">
+                    <button
+                      className={`ie-chip-btn ${cropMode === 'rect' ? 'active' : ''}`}
+                      onClick={() => setCropMode('rect')}
+                    >
+                      <Crop size={14} /> Rectangle
+                    </button>
+                    <button
+                      className={`ie-chip-btn ${cropMode === 'corners' ? 'active' : ''}`}
+                      onClick={() => setCropMode('corners')}
+                    >
+                      <ScanLine size={14} /> 4-Corner Scan
+                    </button>
                   </div>
                 </div>
 
-                <div className="ie-info-box">
-                  Crop Selection:{' '}
-                  <strong>
-                    {Math.round(cropRect.w * dims.w)} × {Math.round(cropRect.h * dims.h)} px
-                  </strong>
-                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Drag the box or corner handles on the canvas to adjust.
-                  </p>
-                </div>
+                {cropMode === 'rect' ? (
+                  <>
+                    <div className="ie-section">
+                      <label className="ie-label">Aspect Ratio</label>
+                      <div className="ie-btn-grid-3">
+                        {(Object.keys(ASPECT_RATIOS) as AspectPreset[]).map(k => (
+                          <button
+                            key={k}
+                            className={`ie-chip-btn ${aspectPreset === k ? 'active' : ''}`}
+                            onClick={() => selectAspectPreset(k)}
+                          >
+                            {ASPECT_RATIOS[k].label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button
-                    className="download-btn"
-                    style={{ flex: 1, padding: '0.7rem', fontSize: '0.875rem' }}
-                    onClick={applyCrop}
-                  >
-                    <Check size={16} /> Apply Crop
-                  </button>
-                  <button
-                    className="ie-secondary-btn"
-                    onClick={() => {
-                      setAspectPreset('free');
-                      setCropRect({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
-                    }}
-                  >
-                    Reset
-                  </button>
-                </div>
+                    <div className="ie-info-box">
+                      Crop Selection:{' '}
+                      <strong>
+                        {Math.round(cropRect.w * dims.w)} × {Math.round(cropRect.h * dims.h)} px
+                      </strong>
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Drag the box or corner handles on the canvas to adjust.
+                      </p>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        className="download-btn"
+                        style={{ flex: 1, padding: '0.7rem', fontSize: '0.875rem' }}
+                        onClick={applyCrop}
+                      >
+                        <Check size={16} /> Apply Crop
+                      </button>
+                      <button
+                        className="ie-secondary-btn"
+                        onClick={() => {
+                          setAspectPreset('free');
+                          setCropRect({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+                        }}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="ie-chip-btn active"
+                      style={{ width: '100%', padding: '0.65rem' }}
+                      onClick={handleAutoDetectCorners}
+                    >
+                      <Sparkles size={14} /> Auto-Detect Document Corners
+                    </button>
+
+                    <div className="ie-info-box">
+                      <strong>4-Point Perspective Flatten</strong>
+                      <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Drag corners <strong>1–4</strong> onto the document edges to automatically deskew and flatten tilted photos into a straight page.
+                      </p>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        className="download-btn"
+                        style={{ flex: 1, padding: '0.7rem', fontSize: '0.875rem' }}
+                        onClick={applyPerspectiveCrop}
+                      >
+                        <Check size={16} /> Flatten &amp; Crop
+                      </button>
+                      <button
+                        className="ie-secondary-btn"
+                        onClick={() => setQuadCorners(DEFAULT_QUAD.map(p => ({ ...p })) as QuadCorners)}
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </>
+                )}
               </>
             )}
 

@@ -710,3 +710,44 @@
     min-width: 68px;
   }
 }
+
+/* 4-Corner Perspective Scan Overlay */
+.ie-quad-layer {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+
+.ie-quad-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ie-quad-handle {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #3B82F6;
+  color: #fff;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: grab;
+  padding: 0;
+  touch-action: none;
+  transition: transform 120ms ease;
+}
+
+.ie-quad-handle:active {
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.18);
+}
