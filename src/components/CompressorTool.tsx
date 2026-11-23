@@ -1,26 +1,44 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Upload, Download, Loader2, CheckCircle2,
-  Trash2, Eye, X, FileImage
+  Trash2, Eye, X, FileImage, RefreshCw
 } from 'lucide-react';
-import imageCompression from 'browser-image-compression';
+import imageCompression, { type Options as ImageCompressionOptions } from 'browser-image-compression';
 import { PDFDocument, PDFRawStream, PDFName, PDFNumber } from 'pdf-lib';
 import JSZip from 'jszip';
 import { ReactCompareSlider, ReactCompareSliderImage } from 'react-compare-slider';
 
 type Mode = 'image' | 'pdf';
 type Status = 'pending' | 'processing' | 'done' | 'error';
+type OutputFormat = 'original' | 'image/jpeg' | 'image/webp';
 
 interface QueueItem {
   id: string;
   file: File;
   compressedBlob?: Blob;
+  outputName?: string;
   status: Status;
   originalSize: number;
   compressedSize?: number;
   previewUrl?: string;
   originalUrl?: string;
 }
+
+const TARGET_PRESETS_KB = [
+  { label: '50 KB',  kb: 50 },
+  { label: '100 KB', kb: 100 },
+  { label: '200 KB', kb: 200 },
+  { label: '500 KB', kb: 500 },
+  { label: '1 MB',   kb: 1024 },
+  { label: 'No cap', kb: 0 },
+];
+
+const MAX_DIM_PRESETS = [
+  { label: 'Original', px: 0 },
+  { label: '1920px',   px: 1920 },
+  { label: '1280px',   px: 1280 },
+  { label: '800px',    px: 800 },
+];
 
 const formatSize = (bytes: number) => {
   if (bytes === 0) return '0 Bytes';
@@ -30,17 +48,35 @@ const formatSize = (bytes: number) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-export default function CompressorTool() {
-  const [mode, setMode]           = useState<Mode>('image');
-  const [queue, setQueue]         = useState<QueueItem[]>([]);
-  const [quality, setQuality]     = useState(0.8);
-  const [pdfQuality, setPdfQuality] = useState(0.6);
-  const [isDragging, setIsDragging] = useState(false);
-  const [previewItem, setPreviewItem] = useState<QueueItem | null>(null);
+function getOutputFilename(originalName: string, format: OutputFormat): string {
+  const base = originalName.replace(/\.[^.]+$/, '');
+  if (format === 'image/jpeg') return `reduced_${base}.jpg`;
+  if (format === 'image/webp') return `reduced_${base}.webp`;
+  return `reduced_${originalName}`;
+}
+
+export default function CompressorTool({ defaultMode = 'image' }: { defaultMode?: Mode }) {
+  const [mode, setMode]                     = useState<Mode>(defaultMode);
+  const [queue, setQueue]                   = useState<QueueItem[]>([]);
+  const [quality, setQuality]               = useState(0.8);
+  const [targetKB, setTargetKB]             = useState<number>(500); // 0 = quality-only
+  const [maxDim, setMaxDim]                 = useState<number>(1920); // 0 = keep original
+  const [outputFormat, setOutputFormat]     = useState<OutputFormat>('original');
+  const [pdfQuality, setPdfQuality]         = useState(0.6);
+  const [settingsDirty, setSettingsDirty]   = useState(false);
+  const [isDragging, setIsDragging]         = useState(false);
+  const [previewItem, setPreviewItem]       = useState<QueueItem | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<QueueItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const downsampleImage = async (bytes: Uint8Array, width: number, height: number, scale: number, quality: number): Promise<Uint8Array> => {
+  useEffect(() => {
+    setMode(defaultMode);
+    setQueue([]);
+    setSelectedPreview(null);
+    setSettingsDirty(false);
+  }, [defaultMode]);
+
+  const downsampleImage = async (bytes: Uint8Array, width: number, height: number, scale: number, q: number): Promise<Uint8Array> => {
     return new Promise((resolve, reject) => {
       const blob = new Blob([bytes as any]);
       const url = URL.createObjectURL(blob);
@@ -60,7 +96,7 @@ export default function CompressorTool() {
             URL.revokeObjectURL(url);
           };
           reader.readAsArrayBuffer(b);
-        }, 'image/jpeg', quality);
+        }, 'image/jpeg', q);
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Load error')); };
       img.src = url;
@@ -68,12 +104,20 @@ export default function CompressorTool() {
   };
 
   const processImage = async (file: File) => {
-    const options = {
-      maxSizeMB: 1,
-      maxWidthOrHeight: 1920,
+    const options: ImageCompressionOptions = {
       useWebWorker: true,
       initialQuality: quality,
+      maxIteration: 15,
     };
+    if (targetKB > 0) {
+      options.maxSizeMB = targetKB / 1024;
+    }
+    if (maxDim > 0) {
+      options.maxWidthOrHeight = maxDim;
+    }
+    if (outputFormat !== 'original') {
+      options.fileType = outputFormat;
+    }
     return await imageCompression(file, options);
   };
 
@@ -107,13 +151,28 @@ export default function CompressorTool() {
 
   const handleFiles = (files: FileList) => {
     const newItems: QueueItem[] = Array.from(files).map(file => ({
-      id: Math.random().toString(36).substr(2, 9),
+      id: Math.random().toString(36).substring(2, 11),
       file,
       status: 'pending',
       originalSize: file.size,
       originalUrl: URL.createObjectURL(file)
     }));
     setQueue(prev => [...prev, ...newItems]);
+  };
+
+  const recompressAll = () => {
+    setSettingsDirty(false);
+    setSelectedPreview(null);
+    setQueue(prev => prev.map(item => {
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return {
+        ...item,
+        status: 'pending',
+        compressedBlob: undefined,
+        compressedSize: undefined,
+        previewUrl: undefined,
+      };
+    }));
   };
 
   useEffect(() => {
@@ -127,16 +186,20 @@ export default function CompressorTool() {
 
       try {
         let compressedBlob: Blob;
+        let outputName: string;
         if (mode === 'image') {
           compressedBlob = await processImage(nextItem.file);
+          outputName = getOutputFilename(nextItem.file.name, outputFormat);
         } else {
           compressedBlob = await processPdf(nextItem.file);
+          outputName = `compressed_${nextItem.file.name}`;
         }
 
-        const newItem = {
+        const newItem: QueueItem = {
           ...nextItem,
-          status: 'done' as Status,
+          status: 'done',
           compressedBlob,
+          outputName,
           compressedSize: compressedBlob.size,
           previewUrl: URL.createObjectURL(compressedBlob)
         };
@@ -145,33 +208,46 @@ export default function CompressorTool() {
           item.id === nextItem.id ? newItem : item
         ));
 
-        // Auto-select first done item for preview
-        setSelectedPreview(prev => prev ? prev : newItem as QueueItem);
-      } catch (error) {
+        setSelectedPreview(prev => prev ? prev : newItem);
+      } catch {
         setQueue(prev => prev.map(item =>
           item.id === nextItem.id ? { ...item, status: 'error' } : item
         ));
       }
     };
     processQueue();
-  }, [queue, mode, quality, pdfQuality]);
+  }, [queue, mode, quality, targetKB, maxDim, outputFormat, pdfQuality]);
+
+  const downloadOne = (item: QueueItem) => {
+    if (!item.compressedBlob) return;
+    const url = URL.createObjectURL(item.compressedBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = item.outputName || `compressed_${item.file.name}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const downloadAll = async () => {
     const doneItems = queue.filter(item => item.status === 'done' && item.compressedBlob);
     if (doneItems.length === 0) return;
     if (doneItems.length === 1) {
-      const item = doneItems[0];
-      const url = URL.createObjectURL(item.compressedBlob!);
-      const a = document.createElement('a');
-      a.href = url; a.download = `compressed_${item.file.name}`; a.click();
+      downloadOne(doneItems[0]);
       return;
     }
     const zip = new JSZip();
-    doneItems.forEach(item => zip.file(`compressed_${item.file.name}`, item.compressedBlob!));
+    doneItems.forEach(item => zip.file(item.outputName || `compressed_${item.file.name}`, item.compressedBlob!));
     const content = await zip.generateAsync({ type: 'blob' });
     const url = URL.createObjectURL(content);
     const a = document.createElement('a');
-    a.href = url; a.download = 'compressed_files.zip'; a.click();
+    a.href = url; a.download = mode === 'image' ? 'reduced_images.zip' : 'compressed_files.zip'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const markDirty = () => {
+    if (queue.some(i => i.status === 'done' || i.status === 'error')) {
+      setSettingsDirty(true);
+    }
   };
 
   return (
@@ -182,34 +258,134 @@ export default function CompressorTool() {
           <div className="tabs" role="tablist" aria-label="Compression mode">
             <button
               className={`tab ${mode === 'image' ? 'active' : ''}`}
-              onClick={() => { setMode('image'); setQueue([]); setSelectedPreview(null); }}
+              onClick={() => { setMode('image'); setQueue([]); setSelectedPreview(null); setSettingsDirty(false); }}
               role="tab" aria-selected={mode === 'image'} id="tab-image" aria-controls="panel-image"
             >
-              <FileImage size={15} aria-hidden="true" /> Images
+              <FileImage size={15} aria-hidden="true" /> Image Reducer
             </button>
             <button
               className={`tab ${mode === 'pdf' ? 'active' : ''}`}
-              onClick={() => { setMode('pdf'); setQueue([]); setSelectedPreview(null); }}
+              onClick={() => { setMode('pdf'); setQueue([]); setSelectedPreview(null); setSettingsDirty(false); }}
               role="tab" aria-selected={mode === 'pdf'} id="tab-pdf" aria-controls="panel-pdf"
             >
               PDF Documents
             </button>
           </div>
 
-          <div style={{ marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.25rem' }}>
+            {mode === 'image' && (
+              <>
+                {/* Target File Size Presets + Custom KB */}
+                <div className="setting-group">
+                  <label htmlFor="target-kb-input">
+                    Target Max File Size:{' '}
+                    <strong style={{ color: 'var(--primary)' }}>
+                      {targetKB > 0 ? (targetKB >= 1024 ? `${(targetKB / 1024).toFixed(1)} MB` : `${targetKB} KB`) : 'Quality only'}
+                    </strong>
+                  </label>
+                  <div className="ie-btn-grid-3">
+                    {TARGET_PRESETS_KB.map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        className={`ie-chip-btn ${targetKB === p.kb ? 'active' : ''}`}
+                        onClick={() => { setTargetKB(p.kb); markDirty(); }}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
+                    <input
+                      id="target-kb-input"
+                      type="number"
+                      min={10}
+                      max={20480}
+                      step={10}
+                      value={targetKB || ''}
+                      placeholder="Custom KB (e.g. 150)"
+                      onChange={e => {
+                        const v = Number(e.target.value);
+                        setTargetKB(v > 0 ? v : 0);
+                        markDirty();
+                      }}
+                      className="ie-input"
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>KB</span>
+                  </div>
+                </div>
+
+                {/* Output Format */}
+                <div className="setting-group">
+                  <label>Output Format</label>
+                  <div className="ie-btn-grid-3">
+                    {[
+                      { id: 'original',   label: 'Original' },
+                      { id: 'image/jpeg', label: 'JPG (Small)' },
+                      { id: 'image/webp', label: 'WebP (Smallest)' },
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        className={`ie-chip-btn ${outputFormat === f.id ? 'active' : ''}`}
+                        onClick={() => { setOutputFormat(f.id as OutputFormat); markDirty(); }}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Max Resolution */}
+                <div className="setting-group">
+                  <label>Max Dimension</label>
+                  <div className="ie-btn-grid-4">
+                    {MAX_DIM_PRESETS.map(d => (
+                      <button
+                        key={d.label}
+                        type="button"
+                        className={`ie-chip-btn ${maxDim === d.px ? 'active' : ''}`}
+                        onClick={() => { setMaxDim(d.px); markDirty(); }}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Quality Slider */}
             <div className="setting-group">
               <label htmlFor="quality-slider">
-                Compression Level: <strong style={{ color: 'var(--primary)' }}>{Math.round((mode === 'image' ? quality : pdfQuality) * 100)}%</strong>
+                Quality: <strong style={{ color: 'var(--primary)' }}>{Math.round((mode === 'image' ? quality : pdfQuality) * 100)}%</strong>
               </label>
               <input
                 id="quality-slider"
                 type="range" min="0.1" max="1" step="0.05"
                 value={mode === 'image' ? quality : pdfQuality}
-                onChange={(e) => mode === 'image' ? setQuality(parseFloat(e.target.value)) : setPdfQuality(parseFloat(e.target.value))}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (mode === 'image') setQuality(val);
+                  else setPdfQuality(val);
+                  markDirty();
+                }}
                 className="range-input"
                 aria-label={`Compression quality: ${Math.round((mode === 'image' ? quality : pdfQuality) * 100)}%`}
               />
             </div>
+
+            {settingsDirty && queue.length > 0 && (
+              <button
+                type="button"
+                className="download-btn"
+                onClick={recompressAll}
+                style={{ padding: '0.65rem 1rem', fontSize: '0.875rem' }}
+              >
+                <RefreshCw size={15} /> Apply New Settings &amp; Re-compress
+              </button>
+            )}
           </div>
 
           <div
@@ -223,8 +399,10 @@ export default function CompressorTool() {
           >
             <Upload size={44} className="upload-icon" aria-hidden="true" />
             <div>
-              <p><strong style={{ color: 'var(--text-main)' }}>Drag & Drop</strong> or click to browse</p>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Supports bulk selection</p>
+              <p><strong style={{ color: 'var(--text-main)' }}>Drag & Drop {mode === 'image' ? 'Images' : 'PDFs'}</strong> or click to browse</p>
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                Supports bulk selection — 100% local in your browser
+              </p>
             </div>
             <input
               type="file" multiple ref={fileInputRef} style={{ display: 'none' }}
@@ -245,7 +423,7 @@ export default function CompressorTool() {
                   aria-label="Download all compressed files"
                 >
                   <Download size={15} aria-hidden="true" />
-                  Download All
+                  {queue.filter(i => i.status === 'done').length > 1 ? 'Download All (ZIP)' : 'Download'}
                 </button>
               </div>
 
@@ -272,10 +450,10 @@ export default function CompressorTool() {
                             : <Upload size={18} color="var(--text-muted)" aria-label="Pending" />
                       }
                       <div className="file-details">
-                        <h4>{item.file.name}</h4>
+                        <h4>{item.outputName || item.file.name}</h4>
                         <p>
                           {formatSize(item.originalSize)}
-                          {item.compressedSize && (
+                          {item.compressedSize !== undefined && (
                             <> → <span style={{ color: 'var(--success)' }}>{formatSize(item.compressedSize)}</span>
                               {savings !== null && savings > 0 && <> <span style={{ color: 'var(--accent)', fontWeight: 700 }}>({savings}% saved)</span></>}
                             </>
@@ -284,6 +462,16 @@ export default function CompressorTool() {
                       </div>
                     </div>
                     <div className="action-btns">
+                      {item.status === 'done' && (
+                        <button
+                          className="btn-icon"
+                          onClick={e => { e.stopPropagation(); downloadOne(item); }}
+                          aria-label={`Download ${item.outputName || item.file.name}`}
+                          title="Download"
+                        >
+                          <Download size={15} />
+                        </button>
+                      )}
                       {item.status === 'done' && mode === 'image' && (
                         <button
                           className="btn-icon"
@@ -336,7 +524,7 @@ export default function CompressorTool() {
             ) : (
               <div className="preview-empty" role="img" aria-label="No file selected for preview">
                 <Upload size={48} aria-hidden="true" />
-                <p>Upload and compress a file to see preview</p>
+                <p>Upload and reduce a file to see preview</p>
               </div>
             )}
           </div>
@@ -362,7 +550,7 @@ export default function CompressorTool() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.875rem' }}>
                 <span style={{ color: 'var(--text-muted)' }}>Original: {formatSize(previewItem.originalSize)}</span>
-                <span style={{ color: 'var(--success)', fontWeight: 700 }}>Compressed: {previewItem.compressedSize ? formatSize(previewItem.compressedSize) : '—'}</span>
+                <span style={{ color: 'var(--success)', fontWeight: 700 }}>Reduced: {previewItem.compressedSize ? formatSize(previewItem.compressedSize) : '—'}</span>
               </div>
             </div>
           </div>

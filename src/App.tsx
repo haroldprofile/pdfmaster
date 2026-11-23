@@ -260,6 +260,12 @@ const ALL_TOOLS: ToolDef[] = [
     icon: <Wand2 size={22} />, path: '/image-editor',
     color: '#EC4899', glow: 'rgba(236,72,153,0.3)', bg: 'rgba(236,72,153,0.12)', category: 'Image Tools', isNew: true,
   },
+  {
+    id: 'reduce-image-size', title: 'Image Size Reducer',
+    description: 'Shrink JPG, PNG & WebP file sizes to an exact target KB/MB with bulk ZIP download and live comparison.',
+    icon: <Minimize2 size={22} />, path: '/reduce-image-size',
+    color: '#F97316', glow: 'rgba(249,115,22,0.3)', bg: 'rgba(249,115,22,0.12)', category: 'Image Tools', isNew: true,
+  },
 ];
 
 const CATEGORIES = [
@@ -850,7 +856,7 @@ export default function App() {
         <Route path="/organize"          element={<ToolWrapper title="Organize PDF"><OrganizeTool /></ToolWrapper>} />
         <Route path="/rotate"            element={<ToolWrapper title="Rotate PDF"><RotateTool /></ToolWrapper>} />
         {/* Optimize */}
-        <Route path="/compress"          element={<ToolWrapper title="Compress PDF & Images"><CompressorTool /></ToolWrapper>} />
+        <Route path="/compress"          element={<ToolWrapper title="Compress PDF & Images"><CompressorTool defaultMode="pdf" /></ToolWrapper>} />
         <Route path="/repair"            element={<ToolWrapper title="Repair PDF"><RepairTool /></ToolWrapper>} />
         {/* Convert to PDF */}
         <Route path="/image-to-pdf"      element={<ToolWrapper title="JPG to PDF"><ImageToPdfTool /></ToolWrapper>} />
@@ -879,8 +885,9 @@ export default function App() {
         <Route path="/qr"                element={<ToolWrapper title="QR Code Tools"><QrToolsPage /></ToolWrapper>} />
         {/* Certificate Generator */}
         <Route path="/certificate"       element={<ToolWrapper title="Stock Certificate Generator"><CertificateGeneratorTool /></ToolWrapper>} />
-        {/* Image Editor */}
+        {/* Image Tools */}
         <Route path="/image-editor"      element={<ToolWrapper title="Image Editor"><ImageEditorTool /></ToolWrapper>} />
+        <Route path="/reduce-image-size" element={<ToolWrapper title="Image Size Reducer"><CompressorTool defaultMode="image" /></ToolWrapper>} />
         <Route path="*"                  element={<Home />} />
       </Routes>
       <DeveloperModal />
