@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   Upload, Download, Loader2, CheckCircle2,
-  Trash2, Eye, X, FileImage, RefreshCw
+  Trash2, Eye, X, FileImage, RefreshCw, Maximize2, Columns2
 } from 'lucide-react';
 import imageCompression, { type Options as ImageCompressionOptions } from 'browser-image-compression';
 import { PDFDocument, PDFRawStream, PDFName, PDFNumber } from 'pdf-lib';
@@ -67,6 +67,7 @@ export default function CompressorTool({ defaultMode = 'image' }: { defaultMode?
   const [isDragging, setIsDragging]         = useState(false);
   const [previewItem, setPreviewItem]       = useState<QueueItem | null>(null);
   const [selectedPreview, setSelectedPreview] = useState<QueueItem | null>(null);
+  const [previewTab, setPreviewTab]         = useState<'single' | 'compare'>('compare');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -500,20 +501,77 @@ export default function CompressorTool({ defaultMode = 'image' }: { defaultMode?
 
         {/* ── Preview Panel ── */}
         <div className="tool-preview-panel">
-          <div className="preview-panel-header">
+          <div className="preview-panel-header" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
             <h4>Preview</h4>
-            {selectedPreview && (
+            {selectedPreview && mode === 'image' && selectedPreview.previewUrl && selectedPreview.originalUrl ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <button
+                  type="button"
+                  className={`ie-chip-btn ${previewTab === 'compare' ? 'active' : ''}`}
+                  style={{ padding: '0.3rem 0.6rem', fontSize: '0.72rem' }}
+                  onClick={() => setPreviewTab('compare')}
+                >
+                  <Columns2 size={13} /> Compare
+                </button>
+                <button
+                  type="button"
+                  className={`ie-chip-btn ${previewTab === 'single' ? 'active' : ''}`}
+                  style={{ padding: '0.3rem 0.6rem', fontSize: '0.72rem' }}
+                  onClick={() => setPreviewTab('single')}
+                >
+                  <Eye size={13} /> Reduced
+                </button>
+                <button
+                  type="button"
+                  className="ie-chip-btn"
+                  style={{ padding: '0.3rem 0.5rem', fontSize: '0.72rem' }}
+                  onClick={() => setPreviewItem(selectedPreview)}
+                  title="Fullscreen Compare"
+                  aria-label="Open fullscreen compare"
+                >
+                  <Maximize2 size={13} />
+                </button>
+              </div>
+            ) : selectedPreview ? (
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Click a file to preview</span>
-            )}
+            ) : null}
           </div>
-          <div className="preview-panel-body" style={{ height: 480 }}>
+          <div className="preview-panel-body compare-preview-body">
             {selectedPreview ? (
               mode === 'image' && selectedPreview.previewUrl ? (
-                <img
-                  src={selectedPreview.previewUrl}
-                  alt={`Compressed preview of ${selectedPreview.file.name}`}
-                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', padding: '1rem' }}
-                />
+                previewTab === 'compare' && selectedPreview.originalUrl ? (
+                  <div className="compare-stage compare-stage-inline">
+                    <span className="compare-pill compare-pill-left">
+                      Original · {formatSize(selectedPreview.originalSize)}
+                    </span>
+                    <span className="compare-pill compare-pill-right">
+                      Reduced · {selectedPreview.compressedSize !== undefined ? formatSize(selectedPreview.compressedSize) : '—'}
+                    </span>
+                    <ReactCompareSlider
+                      className="compare-slider-el"
+                      itemOne={
+                        <ReactCompareSliderImage
+                          src={selectedPreview.originalUrl}
+                          alt="Original"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                      }
+                      itemTwo={
+                        <ReactCompareSliderImage
+                          src={selectedPreview.previewUrl}
+                          alt="Reduced"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                      }
+                    />
+                  </div>
+                ) : (
+                  <img
+                    src={selectedPreview.previewUrl}
+                    alt={`Compressed preview of ${selectedPreview.file.name}`}
+                    style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', padding: '1rem' }}
+                  />
+                )
               ) : mode === 'pdf' && selectedPreview.previewUrl ? (
                 <iframe
                   src={selectedPreview.previewUrl}
@@ -531,27 +589,65 @@ export default function CompressorTool({ defaultMode = 'image' }: { defaultMode?
         </div>
       </div>
 
-      {/* Compare Modal */}
-      {previewItem && (
-        <div className="modal-overlay" onClick={() => setPreviewItem(null)} role="dialog" aria-modal="true" aria-label={`Compare: ${previewItem.file.name}`}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Before / After: {previewItem.file.name}</h3>
+      {/* Responsive Fullscreen Compare Modal */}
+      {previewItem && previewItem.originalUrl && previewItem.previewUrl && (
+        <div
+          className="modal-overlay compare-modal-overlay"
+          onClick={() => setPreviewItem(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Compare: ${previewItem.file.name}`}
+        >
+          <div className="modal-content compare-modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header compare-modal-header">
+              <h3 className="compare-modal-title">Before / After: {previewItem.file.name}</h3>
               <button className="btn-icon" onClick={() => setPreviewItem(null)} aria-label="Close comparison">
                 <X size={16} />
               </button>
             </div>
-            <div style={{ padding: '1rem' }}>
-              <div className="slider-container" style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+            <div className="compare-modal-body">
+              <div className="compare-stage compare-stage-modal">
+                <span className="compare-pill compare-pill-left">Original</span>
+                <span className="compare-pill compare-pill-right">Reduced</span>
                 <ReactCompareSlider
-                  itemOne={<ReactCompareSliderImage src={previewItem.originalUrl!} alt="Original" />}
-                  itemTwo={<ReactCompareSliderImage src={previewItem.previewUrl!} alt="Compressed" />}
+                  className="compare-slider-el"
+                  itemOne={
+                    <ReactCompareSliderImage
+                      src={previewItem.originalUrl}
+                      alt="Original"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                  }
+                  itemTwo={
+                    <ReactCompareSliderImage
+                      src={previewItem.previewUrl}
+                      alt="Reduced"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                  }
                 />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem', fontSize: '0.875rem' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Original: {formatSize(previewItem.originalSize)}</span>
-                <span style={{ color: 'var(--success)', fontWeight: 700 }}>Reduced: {previewItem.compressedSize ? formatSize(previewItem.compressedSize) : '—'}</span>
+            </div>
+            <div className="compare-modal-footer">
+              <div className="compare-modal-stats">
+                <span>Original: <strong>{formatSize(previewItem.originalSize)}</strong></span>
+                <span style={{ color: 'var(--success)' }}>
+                  Reduced: <strong>{previewItem.compressedSize !== undefined ? formatSize(previewItem.compressedSize) : '—'}</strong>
+                </span>
+                {previewItem.compressedSize !== undefined && previewItem.originalSize > 0 && (
+                  <span className="tag-private">
+                    {Math.max(0, Math.round((1 - previewItem.compressedSize / previewItem.originalSize) * 100))}% saved
+                  </span>
+                )}
               </div>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ padding: '0.5rem 1rem', fontSize: '0.825rem' }}
+                onClick={() => downloadOne(previewItem)}
+              >
+                <Download size={14} /> Download
+              </button>
             </div>
           </div>
         </div>

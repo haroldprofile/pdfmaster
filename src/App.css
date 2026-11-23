@@ -751,3 +751,139 @@
   cursor: grabbing;
   transform: translate(-50%, -50%) scale(1.18);
 }
+
+/* ---------- Responsive Image Compare (Inline & Modal) ---------- */
+.compare-preview-body {
+  height: 460px;
+  padding: 0.75rem;
+}
+
+.compare-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compare-stage-inline {
+  height: 100%;
+  min-height: 260px;
+}
+
+.compare-stage-modal {
+  height: min(64vh, 560px);
+  min-height: 240px;
+}
+
+.compare-slider-el {
+  width: 100%;
+  height: 100%;
+}
+
+.compare-pill {
+  position: absolute;
+  top: 10px;
+  z-index: 4;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+.compare-pill-left { left: 10px; }
+.compare-pill-right { right: 10px; }
+
+.compare-modal-overlay {
+  padding: 1rem;
+}
+
+.compare-modal-content {
+  width: 100%;
+  max-width: 960px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-modal-header {
+  gap: 0.75rem;
+  padding: 0.9rem 1.25rem;
+}
+
+.compare-modal-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.compare-modal-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0.875rem 1.25rem;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.compare-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.875rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.compare-modal-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .compare-preview-body {
+    height: 320px;
+    padding: 0.5rem;
+  }
+
+  .compare-modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .compare-modal-header,
+  .compare-modal-body,
+  .compare-modal-footer {
+    padding: 0.75rem;
+  }
+
+  .compare-stage-modal {
+    height: min(56vh, 380px);
+  }
+
+  .compare-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compare-modal-footer .btn-primary {
+    justify-content: center;
+    width: 100%;
+  }
+}

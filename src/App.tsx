@@ -11,7 +11,7 @@ import {
   Wrench, Archive, Printer, Hash, Droplets, Unlock,
   EyeOff, Search, FileImage, FileX,
   FileOutput, Layers, Columns2, QrCode, Wifi, User, Camera,
-  Sun, Moon, Wand2
+  Sun, Moon, Wand2, UserSquare2, Repeat, ShieldOff
 } from 'lucide-react';
 
 import CompressorTool     from './components/CompressorTool';
@@ -40,7 +40,13 @@ import RedactTool         from './components/RedactTool';
 import CompareTool        from './components/CompareTool';
 import QrToolsPage       from './components/QrToolsPage';
 import CertificateGeneratorTool from './components/CertificateGeneratorTool';
+import ImageToolsHub     from './components/ImageToolsHub';
 import ImageEditorTool   from './components/ImageEditorTool';
+import IdPhotoMakerTool  from './components/IdPhotoMakerTool';
+import ImageConverterTool from './components/ImageConverterTool';
+import ImageCollageTool  from './components/ImageCollageTool';
+import BulkImageWatermarkTool from './components/BulkImageWatermarkTool';
+import ExifStripperTool  from './components/ExifStripperTool';
 import DeveloperModal    from './components/DeveloperModal';
 
 import './App.css';
@@ -266,6 +272,36 @@ const ALL_TOOLS: ToolDef[] = [
     icon: <Minimize2 size={22} />, path: '/reduce-image-size',
     color: '#F97316', glow: 'rgba(249,115,22,0.3)', bg: 'rgba(249,115,22,0.12)', category: 'Image Tools', isNew: true,
   },
+  {
+    id: 'id-photo', title: 'ID / Passport Photo Maker',
+    description: 'Make 1×1, 2×2 & Passport photos with BG removal, solid backdrops & printable 4R/A4 PDF sheets.',
+    icon: <UserSquare2 size={22} />, path: '/id-photo',
+    color: '#3B82F6', glow: 'rgba(59,130,246,0.3)', bg: 'rgba(59,130,246,0.12)', category: 'Image Tools', isNew: true,
+  },
+  {
+    id: 'image-converter', title: 'Bulk Image Format Converter',
+    description: 'Batch convert PNG, JPG, WebP & BMP images with fill color & ZIP download.',
+    icon: <Repeat size={22} />, path: '/image-converter',
+    color: '#10B981', glow: 'rgba(16,185,129,0.3)', bg: 'rgba(16,185,129,0.12)', category: 'Image Tools', isNew: true,
+  },
+  {
+    id: 'image-collage', title: 'Image Stitcher & Collage',
+    description: 'Combine Front + Back of IDs or multiple photos side-by-side, stacked, or in grids.',
+    icon: <LayoutGrid size={22} />, path: '/image-collage',
+    color: '#8B5CF6', glow: 'rgba(139,92,246,0.3)', bg: 'rgba(139,92,246,0.12)', category: 'Image Tools', isNew: true,
+  },
+  {
+    id: 'image-watermark', title: 'Bulk Image Watermarker',
+    description: 'Stamp text or logo watermarks across multiple photos at once with ZIP export.',
+    icon: <Droplets size={22} />, path: '/image-watermark',
+    color: '#06B6D4', glow: 'rgba(6,182,212,0.3)', bg: 'rgba(6,182,212,0.12)', category: 'Image Tools', isNew: true,
+  },
+  {
+    id: 'exif-stripper', title: 'EXIF & Metadata Stripper',
+    description: 'Inspect camera EXIF & GPS location data and strip metadata privately before sharing.',
+    icon: <ShieldOff size={22} />, path: '/exif-stripper',
+    color: '#EF4444', glow: 'rgba(239,68,68,0.3)', bg: 'rgba(239,68,68,0.12)', category: 'Image Tools', isNew: true,
+  },
 ];
 
 const CATEGORIES = [
@@ -302,7 +338,7 @@ function Navbar() {
         </Link>
         <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Link
-            to="/image-editor"
+            to="/image-tools"
             className="navbar-link-shortcut"
             style={{
               display: 'flex',
@@ -318,10 +354,10 @@ function Navbar() {
               fontWeight: 700,
               transition: 'all 150ms'
             }}
-            aria-label="Open Image Editor"
+            aria-label="Open Image Tools"
           >
-            <Wand2 size={14} color="#EC4899" />
-            <span className="navbar-shortcut-text">Image Editor</span>
+            <Images size={14} color="#EC4899" />
+            <span className="navbar-shortcut-text">Image Tools</span>
           </Link>
 
           <Link
@@ -805,10 +841,10 @@ function Home() {
             </Link>
             <span style={{ color: 'var(--border)' }}>•</span>
             <Link
-              to="/image-editor"
+              to="/image-tools"
               style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontFamily: 'inherit', textDecoration: 'none', fontSize: '0.8125rem' }}
             >
-              Image Editor
+              Image Tools
             </Link>
           </div>
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
@@ -886,8 +922,14 @@ export default function App() {
         {/* Certificate Generator */}
         <Route path="/certificate"       element={<ToolWrapper title="Stock Certificate Generator"><CertificateGeneratorTool /></ToolWrapper>} />
         {/* Image Tools */}
+        <Route path="/image-tools"       element={<ToolWrapper title="Image Tools"><ImageToolsHub /></ToolWrapper>} />
         <Route path="/image-editor"      element={<ToolWrapper title="Image Editor"><ImageEditorTool /></ToolWrapper>} />
         <Route path="/reduce-image-size" element={<ToolWrapper title="Image Size Reducer"><CompressorTool defaultMode="image" /></ToolWrapper>} />
+        <Route path="/id-photo"          element={<ToolWrapper title="ID / Passport Photo Maker"><IdPhotoMakerTool /></ToolWrapper>} />
+        <Route path="/image-converter"   element={<ToolWrapper title="Bulk Image Format Converter"><ImageConverterTool /></ToolWrapper>} />
+        <Route path="/image-collage"     element={<ToolWrapper title="Image Stitcher & Collage"><ImageCollageTool /></ToolWrapper>} />
+        <Route path="/image-watermark"   element={<ToolWrapper title="Bulk Image Watermarker"><BulkImageWatermarkTool /></ToolWrapper>} />
+        <Route path="/exif-stripper"     element={<ToolWrapper title="EXIF & Metadata Stripper"><ExifStripperTool /></ToolWrapper>} />
         <Route path="*"                  element={<Home />} />
       </Routes>
       <DeveloperModal />
