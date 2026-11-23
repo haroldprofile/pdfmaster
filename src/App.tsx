@@ -615,7 +615,7 @@ function Home() {
       </main>
 
       {/* Side-by-side Promos Grid */}
-      <section style={{ padding: '0 1.5rem 3rem', maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: '1.5rem' }}>
+      <section style={{ padding: '0 1.5rem 3rem', maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: '1.5rem' }}>
         {/* QR Code Tools Promo Section */}
         <div style={{
           background: 'linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(59,130,246,0.12) 100%)',
