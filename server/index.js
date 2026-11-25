@@ -28,10 +28,19 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }
 });
 
-// Reusable document conversion controller
-async function handleConversion(req, res, outputFormat) {
+// Reusable document conversion controller with strict input extension validation
+async function handleConversion(req, res, outputFormat, allowedInputExts) {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded.' });
+  }
+
+  // Sanitize filename to prevent path traversal and reject unexpected formats (e.g. .ps / .eps)
+  const safeName = path.basename(req.file.originalname || '').replace(/[^a-zA-Z0-9._\s()-]/g, '_');
+  const inputExt = path.extname(safeName).toLowerCase();
+  if (!allowedInputExts.includes(inputExt)) {
+    return res.status(400).json({
+      error: `Unsupported input file type "${inputExt || 'unknown'}". Allowed: ${allowedInputExts.join(', ')}.`
+    });
   }
 
   // Ensure format has no leading dot (e.g. "docx" instead of ".docx")
@@ -39,12 +48,12 @@ async function handleConversion(req, res, outputFormat) {
   const dotExt = `.${format}`;
 
   try {
-    console.log(`Converting ${req.file.originalname} to format: ${format}...`);
+    console.log(`Converting ${safeName} to format: ${format}...`);
     
     let convertedBuf;
     
     // Check if we are converting FROM a PDF to a spreadsheet (Excel)
-    const isPdfInput = req.file.originalname.toLowerCase().endsWith('.pdf');
+    const isPdfInput = inputExt === '.pdf';
     
     if (isPdfInput && format === 'xlsx') {
       // ─── PDF to Excel: Two-Step Conversion ──────────────────────
@@ -54,7 +63,7 @@ async function handleConversion(req, res, outputFormat) {
         req.file.buffer,
         'html',
         undefined,
-        { fileName: req.file.originalname }
+        { fileName: safeName }
       );
 
       // Step 2: Convert HTML to XLSX (Calc spreadsheet imports HTML tables)
@@ -82,14 +91,14 @@ async function handleConversion(req, res, outputFormat) {
         format,
         undefined,
         { 
-          fileName: req.file.originalname,
+          fileName: safeName,
           sofficeAdditionalArgs: sofficeAdditionalArgs
         }
       );
     }
     
     // Retrieve root filename without the extension
-    const baseName = path.parse(req.file.originalname).name;
+    const baseName = path.parse(safeName).name;
     
     // Choose appropriate Content-Type header based on target format
     let contentType = 'application/octet-stream';
@@ -118,35 +127,39 @@ async function handleConversion(req, res, outputFormat) {
 
 // ─── Convert TO PDF Endpoints ─────────────────────────────────────
 app.post('/api/convert/word-to-pdf', upload.single('file'), (req, res) => {
-  handleConversion(req, res, 'pdf');
+  handleConversion(req, res, 'pdf', ['.doc', '.docx', '.odt', '.rtf']);
 });
 
 app.post('/api/convert/ppt-to-pdf', upload.single('file'), (req, res) => {
-  handleConversion(req, res, 'pdf');
+  handleConversion(req, res, 'pdf', ['.ppt', '.pptx', '.odp']);
 });
 
 app.post('/api/convert/excel-to-pdf', upload.single('file'), (req, res) => {
-  handleConversion(req, res, 'pdf');
+  handleConversion(req, res, 'pdf', ['.xls', '.xlsx', '.ods', '.csv']);
 });
 
 // ─── Convert FROM PDF Endpoints ───────────────────────────────────
 app.post('/api/convert/pdf-to-word', upload.single('file'), (req, res) => {
-  handleConversion(req, res, 'docx');
+  handleConversion(req, res, 'docx', ['.pdf']);
 });
 
 app.post('/api/convert/pdf-to-ppt', upload.single('file'), (req, res) => {
-  handleConversion(req, res, 'pptx');
+  handleConversion(req, res, 'pptx', ['.pdf']);
 });
 
 app.post('/api/convert/pdf-to-excel', upload.single('file'), (req, res) => {
-  handleConversion(req, res, 'xlsx');
+  handleConversion(req, res, 'xlsx', ['.pdf']);
 });
 
 // ─── Image Background Removal (withoutBG Cloud API Proxy) ─────────
 // ponytail: uses withoutBG REST API directly from Node 20 fetch (avoids Python + 1.5GB ONNX weights on Render 512MB tier)
+const ALLOWED_IMAGE_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/bmp']);
 app.post('/api/image/remove-bg', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No image uploaded.' });
+  }
+  if (!ALLOWED_IMAGE_MIMES.has(req.file.mimetype)) {
+    return res.status(415).json({ error: 'Unsupported image format. Allowed: PNG, JPG, WebP, BMP.' });
   }
 
   const userKey = String(req.headers['x-withoutbg-api-key'] || '').trim();

@@ -1,12 +1,14 @@
 # Use official Node.js image as the base
 FROM node:20-slim
 
-# Install LibreOffice and standard fonts for high-quality document conversion
-RUN apt-get update && apt-get install -y \
+# Install LibreOffice and standard fonts with latest security patches; ensure Ghostscript is absent
+RUN apt-get update && apt-get upgrade -y && apt-get install -y \
     libreoffice \
     fonts-dejavu \
     fonts-liberation \
     --no-install-recommends \
+    && (apt-get purge -y ghostscript || true) \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory inside the container
